@@ -9,13 +9,16 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneOffset;
 import java.util.Collections;
 
+import com.azure.core.credential.TokenCredential;
 import com.microsoft.aad.msal4j.AuthorizationCodeParameters;
 import com.microsoft.aad.msal4j.ClientCredentialFactory;
 import com.microsoft.aad.msal4j.ConfidentialClientApplication;
+import com.microsoft.graph.authentication.TokenCredentialAuthProvider;
 import com.microsoft.graph.models.User;
-
+import com.microsoft.graph.requests.GraphServiceClient;
 
 public class Main {
     
@@ -25,7 +28,6 @@ public class Main {
     private static final String CLIENT_SECRET = "";
     private static final String REDIRECT_URL = "https://localhost";
     private static final String AUTH_CODE = "";
-    
     
         
     public static void main(String[] args) throws IOException, URISyntaxException {
@@ -52,9 +54,22 @@ public class Main {
         System.out.println("--> Expires on: " + result.expiresOnDate());
         
         // Example 3: Get an additional user info via MS Graph API
-        var user = getUserInfoFromGraphAPI(access_token);
-        System.out.println("--> First Name: " + user.givenName);
-        System.out.println("--> Second Name: " + user.surname);
+        // var user = getUserInfoFromGraphAPI(access_token);
+        // System.out.println("--> First Name: " + user.givenName);
+        // System.out.println("--> Second Name: " + user.surname);
+        
+        
+        // Example 4:
+        var tokenCredential = new AccessTokenCredential(access_token, result.expiresOnDate().toInstant().atOffset(ZoneOffset.UTC));
+        TokenCredentialAuthProvider authProvider = new TokenCredentialAuthProvider(tokenCredential);
+        
+        var graphClient = GraphServiceClient.builder()
+            .authenticationProvider(authProvider)
+            .buildClient();
+
+        var userData = graphClient.me().buildRequest().get();
+        System.out.println("--> First Name: " + userData.givenName);
+        System.out.println("--> Second Name: " + userData.surname);
     }
 
     private static User getUserInfoFromGraphAPI(String accessToken) throws IOException {
