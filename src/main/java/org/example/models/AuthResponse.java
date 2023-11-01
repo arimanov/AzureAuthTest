@@ -1,10 +1,9 @@
-package org.example;
+package org.example.models;
 
 import com.google.gson.annotations.SerializedName;
 
 import lombok.Getter;
 import lombok.Setter;
-
 
 @Getter
 @Setter

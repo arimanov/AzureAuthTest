@@ -1,143 +1,63 @@
 package org.example;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.URL;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.time.ZoneOffset;
-import java.util.Collections;
+import java.util.Properties;
+import java.util.Set;
 
-import com.azure.core.credential.TokenCredential;
-import com.microsoft.aad.msal4j.AuthorizationCodeParameters;
-import com.microsoft.aad.msal4j.ClientCredentialFactory;
-import com.microsoft.aad.msal4j.ConfidentialClientApplication;
-import com.microsoft.graph.authentication.TokenCredentialAuthProvider;
-import com.microsoft.graph.models.User;
-import com.microsoft.graph.requests.GraphServiceClient;
+import com.microsoft.aad.msal4j.AuthorizationRequestUrlParameters;
+import com.microsoft.aad.msal4j.Prompt;
+import com.microsoft.aad.msal4j.PublicClientApplication;
+import com.microsoft.aad.msal4j.ResponseMode;
+
+import lombok.SneakyThrows;
+
 
 public class Main {
     
-    private static final String TENANT_ID = "";
-    private static final String MS_LOGIN_URL = String.format("https://login.microsoftonline.com/%s", TENANT_ID);
-    private static final String CLIENT_ID = "";
-    private static final String CLIENT_SECRET = "";
-    private static final String REDIRECT_URL = "https://localhost";
     private static final String AUTH_CODE = "";
     
+    @SneakyThrows
+    public static void main(String[] args) {
         
-    public static void main(String[] args) throws IOException, URISyntaxException {
+        var properties = initProperties();
         
-        // Example 1: Get token without msal4j library
-        // var tokenData = getUserTokenFromGraphAPI(AUTH_CODE);
-        // var access_token = tokenData.accessToken;
-        // System.out.println("--> Access token: " + access_token);
+        // Example 0: Generate auth url
+        var authUrl = generateAuthURL(
+            String.format("https://login.microsoftonline.com/%s", properties.getProperty("auth.tenantId")), 
+            properties.getProperty("auth.redirectUrl"), properties.getProperty("auth.clientId"));
+        System.out.println(authUrl);
         
-        // Example 2: Get token via msal4j library
-        var app = ConfidentialClientApplication.builder(CLIENT_ID, ClientCredentialFactory.createFromSecret(CLIENT_SECRET))
-            .authority(MS_LOGIN_URL)
+        // Example 1: Get token and data without libs
+        var azureAuthViaHttp = new AzureAuthViaHttp();
+        var result = azureAuthViaHttp.getUserData(properties, AUTH_CODE);
+        System.out.println(result);
+        
+        // Example 2: Get token and data via libraries
+        var azureAuthViaLibs = new AzureAuthViaLibs();
+        var result2 = azureAuthViaLibs.getUserData(properties, AUTH_CODE);
+        System.out.println(result2);
+        
+    }
+    
+    @SneakyThrows
+    private static URL generateAuthURL(String loginUrl, String redirectUrl, String clientId) {
+
+        var publicClientApplication = PublicClientApplication.builder(clientId)
+            .authority(loginUrl)
             .build();
-
-        AuthorizationCodeParameters parameters = AuthorizationCodeParameters.builder(AUTH_CODE, new URI(REDIRECT_URL))
-            .scopes(Collections.singleton("https://graph.microsoft.com/.default"))
+        
+        AuthorizationRequestUrlParameters authRequest = AuthorizationRequestUrlParameters
+            .builder(redirectUrl, Set.of("User.Read"))
+            .responseMode(ResponseMode.QUERY)
+            .prompt(Prompt.SELECT_ACCOUNT)
             .build();
-
-        var result = app.acquireToken(parameters).join();
-        var access_token = result.accessToken();
-
-        System.out.println("--> Access token: " + access_token);
-        System.out.println("--> User email: " + result.account().username());
-        System.out.println("--> Expires on: " + result.expiresOnDate());
-        
-        // Example 3: Get an additional user info via MS Graph API
-        // var user = getUserInfoFromGraphAPI(access_token);
-        // System.out.println("--> First Name: " + user.givenName);
-        // System.out.println("--> Second Name: " + user.surname);
-        
-        
-        // Example 4:
-        var tokenCredential = new AccessTokenCredential(access_token, result.expiresOnDate().toInstant().atOffset(ZoneOffset.UTC));
-        TokenCredentialAuthProvider authProvider = new TokenCredentialAuthProvider(tokenCredential);
-        
-        var graphClient = GraphServiceClient.builder()
-            .authenticationProvider(authProvider)
-            .buildClient();
-
-        var userData = graphClient.me().buildRequest().get();
-        System.out.println("--> First Name: " + userData.givenName);
-        System.out.println("--> Second Name: " + userData.surname);
+        return publicClientApplication.getAuthorizationRequestUrl(authRequest);
     }
 
-    private static User getUserInfoFromGraphAPI(String accessToken) throws IOException {
-
-        var url = new URL("https://graph.microsoft.com/v1.0/me");
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestProperty("Accept", "application/json");
-        conn.setRequestProperty("Authorization", "Bearer " + accessToken);
-        int responseCode = conn.getResponseCode();
-        
-        if (responseCode == 200) {
-            var in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-            String inputLine;
-            StringBuilder response = new StringBuilder();
-
-            while ((inputLine = in.readLine()) != null) {
-                response.append(inputLine);
-            }
-            in.close();
-            
-            String responseBody = response.toString();
-            System.out.println("Response: " + responseBody);
-            var gson = new com.google.gson.Gson();
-            return gson.fromJson(responseBody, User.class);
-            
-        } else {
-            throw new RuntimeException("Failed to retrieve user information from MS Graph API: " + responseCode);
-        }
-    }
-
-    private static AuthResponse getUserTokenFromGraphAPI(String auth_code) throws IOException {
-        
-        var formData = "grant_type=" + URLEncoder.encode("authorization_code", StandardCharsets.UTF_8) 
-            + "&scope=" + URLEncoder.encode("User.Read Mail.Read", StandardCharsets.UTF_8)
-            + "&redirect_uri=" + URLEncoder.encode(REDIRECT_URL, StandardCharsets.UTF_8)
-            + "&client_id=" + URLEncoder.encode(CLIENT_ID, StandardCharsets.UTF_8)
-            + "&client_secret=" + URLEncoder.encode(CLIENT_SECRET, StandardCharsets.UTF_8)
-            + "&code=" + URLEncoder.encode(auth_code, StandardCharsets.UTF_8);
-
-
-        var url = new URL("https://login.microsoftonline.com/fe54e49e-3b45-4ec7-8d1c-558ade7e6e70/oauth2/v2.0/token");
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setDoOutput(true);
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-        
-        var os = conn.getOutputStream();
-        os.write(formData.getBytes());
-        os.flush();
-        os.close();
-
-        if (conn.getResponseCode() == 200) {
-            var in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-            String inputLine;
-            StringBuilder response = new StringBuilder();
-
-            while ((inputLine = in.readLine()) != null) {
-                response.append(inputLine);
-            }
-            in.close();
-
-            String responseBody = response.toString();
-            var gson = new com.google.gson.Gson();
-            return gson.fromJson(responseBody, AuthResponse.class);
-
-        } else {
-            throw new RuntimeException("Azure auth failed: " + conn.getResponseCode());
-        }
-        
+    @SneakyThrows
+    private static Properties initProperties() {
+        var appProps = new Properties();
+        appProps.load(Main.class.getClassLoader().getResourceAsStream("app.properties"));
+        return appProps;
     }
 }
